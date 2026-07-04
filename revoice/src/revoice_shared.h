@@ -10,14 +10,7 @@
 #define MAX_OPUS_DATA_LEN			960
 #define MAX_SPEEX_DATA_LEN			228
 
-// Time-based voice flood protection (issue #30), modelled on VoiceTranscoder.
-// All audio is 8 kHz mono; a packet carries at least one 20 ms frame (160
-// samples). Each accepted packet advances a per-player "playback clock" by its
-// audio duration; a client whose clock runs more than REV_VoiceMaxDelta ms
-// ahead of real time is sending faster than real-time (flood) and is throttled.
-#define VOICE_SAMPLE_RATE			8000
-#define VOICE_FRAME_SAMPLES			160		// 20 ms, minimum audio a valid packet represents
-#define REV_VOICEMAXDELTA_DEFAULT	"200"	// ms a client may run ahead of real time (0 disables)
+#define REV_VOICEMAXDELTA_DEFAULT	"200"
 
 #define SILK_VOICE_QUALITY			5
 #define OPUS_VOICE_QUALITY			5

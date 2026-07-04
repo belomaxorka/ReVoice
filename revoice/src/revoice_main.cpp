@@ -82,9 +82,6 @@ void SV_ParseVoiceData_emu(IGameClient *cl)
 	double now = g_RehldsSv->GetTime();
 	cl->SetLastVoiceTime(now);
 
-	// Time-based flood protection (issue #30): a client sending voice faster
-	// than real-time has run its playback clock too far ahead. Drop the packet
-	// before spending CPU on transcoding it.
 	if (srcPlayer->IsVoiceFlood(now))
 		return;
 
@@ -137,7 +134,6 @@ void SV_ParseVoiceData_emu(IGameClient *cl)
 		return;
 	}
 
-	// Packet accepted for relay: advance the playback clock by its audio duration.
 	srcPlayer->AdvanceVoiceClock(now, decodedSamples);
 
 	int maxclients = g_RehldsSvs->GetMaxClients();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "revoice_shared.h"
+#include "revoice_flood.h"
 #include "VoiceEncoder_Silk.h"
 #include "SteamP2PCodec.h"
 #include "VoiceEncoder_Speex.h"
@@ -14,7 +15,7 @@ private:
 	CSteamP2PCodec *m_OpusCodec;
 	VoiceCodec_Frame *m_SpeexCodec;
 	int m_Protocol;
-	double m_NextVoicePacketExpectedTime;	// VTC-style playback clock for flood protection
+	CVoiceFloodGuard m_VoiceFlood;
 	int m_RequestId;
 	bool m_Connected;
 	bool m_HLTV;

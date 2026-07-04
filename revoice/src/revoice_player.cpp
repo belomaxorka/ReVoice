@@ -39,7 +39,7 @@ void CRevoicePlayer::OnConnected()
 {
 	// already connected, suppose now there is a change of level?
 	if (m_Connected) {
-		m_NextVoicePacketExpectedTime = 0.0;
+		m_VoiceFlood.Reset();
 		return;
 	}
 
@@ -55,7 +55,7 @@ void CRevoicePlayer::OnConnected()
 
 	// default codec
 	m_CodecType = GetCodecTypeByString(g_pcv_rev_default_codec->string);
-	m_NextVoicePacketExpectedTime = 0.0;
+	m_VoiceFlood.Reset();
 	m_Connected = true;
 	m_RequestId = MAKE_REQUESTID(PLID);
 	m_Protocol = protocol;
@@ -75,7 +75,7 @@ void CRevoicePlayer::OnDisconnected()
 	m_Connected = false;
 	m_Protocol = 0;
 	m_CodecType = vct_none;
-	m_NextVoicePacketExpectedTime = 0.0;
+	m_VoiceFlood.Reset();
 	m_RequestId = 0;
 }
 
@@ -139,42 +139,20 @@ CRevoicePlayer *GetPlayerByEdict(const edict_t *ed)
 	return &g_Players[ clientId ];
 }
 
-// A packet is flood if the player's virtual playback clock (advanced by the
-// audio duration of every accepted packet) has run more than REV_VoiceMaxDelta
-// ms ahead of real time -- i.e. they have sent more audio than could have been
-// spoken by now. Setting the cvar to 0 disables flood protection.
 bool CRevoicePlayer::IsVoiceFlood(double now)
 {
 	double maxDeltaMs = g_pcv_rev_voicemaxdelta ? g_pcv_rev_voicemaxdelta->value : 0.0;
-	if (maxDeltaMs <= 0.0)
-		return false;
-
-	return m_NextVoicePacketExpectedTime > now &&
-		(m_NextVoicePacketExpectedTime - now) * 1000.0 > maxDeltaMs;
+	return m_VoiceFlood.IsFlood(now, maxDeltaMs);
 }
 
-// Advance the playback clock by the audio duration this accepted packet carries.
-// A valid voice packet represents at least one 20 ms frame, so a burst of tiny
-// or empty packets still advances the clock and gets throttled.
 void CRevoicePlayer::AdvanceVoiceClock(double now, int numSamples)
 {
-	if (numSamples < VOICE_FRAME_SAMPLES)
-		numSamples = VOICE_FRAME_SAMPLES;
-
-	double frameTimeLength = (double)numSamples / VOICE_SAMPLE_RATE;
-
-	if (m_NextVoicePacketExpectedTime > now)
-		m_NextVoicePacketExpectedTime += frameTimeLength;
-	else
-		m_NextVoicePacketExpectedTime = now + frameTimeLength;
+	m_VoiceFlood.Advance(now, numSamples);
 }
 
 int CRevoicePlayer::GetVoiceFloodLeadMs(double now) const
 {
-	if (m_NextVoicePacketExpectedTime <= now)
-		return 0;
-
-	return int((m_NextVoicePacketExpectedTime - now) * 1000.0);
+	return m_VoiceFlood.LeadMs(now);
 }
 
 const char *CRevoicePlayer::GetCodecTypeToString()
