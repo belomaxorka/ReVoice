@@ -39,7 +39,7 @@ void CRevoicePlayer::OnConnected()
 {
 	// already connected, suppose now there is a change of level?
 	if (m_Connected) {
-		m_VoiceRate = 0;
+		m_NextVoicePacketExpectedTime = 0.0;
 		return;
 	}
 
@@ -55,7 +55,7 @@ void CRevoicePlayer::OnConnected()
 
 	// default codec
 	m_CodecType = GetCodecTypeByString(g_pcv_rev_default_codec->string);
-	m_VoiceRate = 0;
+	m_NextVoicePacketExpectedTime = 0.0;
 	m_Connected = true;
 	m_RequestId = MAKE_REQUESTID(PLID);
 	m_Protocol = protocol;
@@ -75,7 +75,7 @@ void CRevoicePlayer::OnDisconnected()
 	m_Connected = false;
 	m_Protocol = 0;
 	m_CodecType = vct_none;
-	m_VoiceRate = 0;
+	m_NextVoicePacketExpectedTime = 0.0;
 	m_RequestId = 0;
 }
 
@@ -139,65 +139,47 @@ CRevoicePlayer *GetPlayerByEdict(const edict_t *ed)
 	return &g_Players[ clientId ];
 }
 
-void CRevoicePlayer::SetLastVoiceTime(double time)
+// A packet is flood if the player's virtual playback clock (advanced by the
+// audio duration of every accepted packet) has run more than REV_VoiceMaxDelta
+// ms ahead of real time -- i.e. they have sent more audio than could have been
+// spoken by now. Setting the cvar to 0 disables flood protection.
+bool CRevoicePlayer::IsVoiceFlood(double now)
 {
-	UpdateVoiceRate(time - m_Client->GetLastVoiceTime());
-	m_Client->SetLastVoiceTime(time);
+	double maxDeltaMs = g_pcv_rev_voicemaxdelta ? g_pcv_rev_voicemaxdelta->value : 0.0;
+	if (maxDeltaMs <= 0.0)
+		return false;
+
+	return m_NextVoicePacketExpectedTime > now &&
+		(m_NextVoicePacketExpectedTime - now) * 1000.0 > maxDeltaMs;
 }
 
-void CRevoicePlayer::UpdateVoiceRate(double delta)
+// Advance the playback clock by the audio duration this accepted packet carries.
+// A valid voice packet represents at least one 20 ms frame, so a burst of tiny
+// or empty packets still advances the clock and gets throttled.
+void CRevoicePlayer::AdvanceVoiceClock(double now, int numSamples)
 {
-	if (m_VoiceRate)
-	{
-		// Leaky bucket: drain purely by elapsed time. The extra constant
-		// MAX_*_DATA_LEN term used to subtract a whole max-size packet on every
-		// call, which cancelled out each IncreaseVoiceRate and made the bucket
-		// unable to fill, so the rate limit never triggered (issue #30).
-		switch (m_CodecType)
-		{
-		case vct_silk:
-			m_VoiceRate -= int(delta * MAX_SILK_VOICE_RATE);
-			break;
-		case vct_opus:
-			m_VoiceRate -= int(delta * MAX_OPUS_VOICE_RATE);
-			break;
-		case vct_speex:
-			m_VoiceRate -= int(delta * MAX_SPEEX_VOICE_RATE);
-			break;
-		default:
-			break;
-		}
+	if (numSamples < VOICE_FRAME_SAMPLES)
+		numSamples = VOICE_FRAME_SAMPLES;
 
-		if (m_VoiceRate < 0)
-			m_VoiceRate = 0;
-	}
+	double frameTimeLength = (double)numSamples / VOICE_SAMPLE_RATE;
+
+	if (m_NextVoicePacketExpectedTime > now)
+		m_NextVoicePacketExpectedTime += frameTimeLength;
+	else
+		m_NextVoicePacketExpectedTime = now + frameTimeLength;
+}
+
+int CRevoicePlayer::GetVoiceFloodLeadMs(double now) const
+{
+	if (m_NextVoicePacketExpectedTime <= now)
+		return 0;
+
+	return int((m_NextVoicePacketExpectedTime - now) * 1000.0);
 }
 
 const char *CRevoicePlayer::GetCodecTypeToString()
 {
 	return m_szCodecType[ m_CodecType ];
-}
-
-void CRevoicePlayer::IncreaseVoiceRate(int dataLength)
-{
-	m_VoiceRate += dataLength;
-
-	// Clamp so a burst of packets within a single server frame (where the
-	// time-based leak drains nothing) can't grow the bucket without bound and
-	// overflow the int. The cap stays above the drop threshold, so a flooding
-	// client remains rate-limited while the bucket drains within ~1s once the
-	// flood stops.
-	int cap;
-	switch (m_CodecType)
-	{
-	case vct_opus:  cap = MAX_OPUS_VOICE_RATE  + MAX_OPUS_DATA_LEN;  break;
-	case vct_speex: cap = MAX_SPEEX_VOICE_RATE + MAX_SPEEX_DATA_LEN; break;
-	case vct_silk:
-	default:        cap = MAX_SILK_VOICE_RATE  + MAX_SILK_DATA_LEN;  break;
-	}
-
-	if (m_VoiceRate > cap)
-		m_VoiceRate = cap;
 }
 
 CodecType CRevoicePlayer::GetCodecTypeByString(const char *codec)
