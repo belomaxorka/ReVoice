@@ -149,16 +149,20 @@ void CRevoicePlayer::UpdateVoiceRate(double delta)
 {
 	if (m_VoiceRate)
 	{
+		// Leaky bucket: drain purely by elapsed time. The extra constant
+		// MAX_*_DATA_LEN term used to subtract a whole max-size packet on every
+		// call, which cancelled out each IncreaseVoiceRate and made the bucket
+		// unable to fill, so the rate limit never triggered (issue #30).
 		switch (m_CodecType)
 		{
 		case vct_silk:
-			m_VoiceRate -= int(delta * MAX_SILK_VOICE_RATE) + MAX_SILK_DATA_LEN;
+			m_VoiceRate -= int(delta * MAX_SILK_VOICE_RATE);
 			break;
 		case vct_opus:
-			m_VoiceRate -= int(delta * MAX_OPUS_VOICE_RATE) + MAX_OPUS_DATA_LEN;
+			m_VoiceRate -= int(delta * MAX_OPUS_VOICE_RATE);
 			break;
 		case vct_speex:
-			m_VoiceRate -= int(delta * MAX_SPEEX_VOICE_RATE) + MAX_SPEEX_DATA_LEN;
+			m_VoiceRate -= int(delta * MAX_SPEEX_VOICE_RATE);
 			break;
 		default:
 			break;
@@ -177,6 +181,23 @@ const char *CRevoicePlayer::GetCodecTypeToString()
 void CRevoicePlayer::IncreaseVoiceRate(int dataLength)
 {
 	m_VoiceRate += dataLength;
+
+	// Clamp so a burst of packets within a single server frame (where the
+	// time-based leak drains nothing) can't grow the bucket without bound and
+	// overflow the int. The cap stays above the drop threshold, so a flooding
+	// client remains rate-limited while the bucket drains within ~1s once the
+	// flood stops.
+	int cap;
+	switch (m_CodecType)
+	{
+	case vct_opus:  cap = MAX_OPUS_VOICE_RATE  + MAX_OPUS_DATA_LEN;  break;
+	case vct_speex: cap = MAX_SPEEX_VOICE_RATE + MAX_SPEEX_DATA_LEN; break;
+	case vct_silk:
+	default:        cap = MAX_SILK_VOICE_RATE  + MAX_SILK_DATA_LEN;  break;
+	}
+
+	if (m_VoiceRate > cap)
+		m_VoiceRate = cap;
 }
 
 CodecType CRevoicePlayer::GetCodecTypeByString(const char *codec)
