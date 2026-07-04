@@ -28,11 +28,14 @@ void CvarValue2_PreHook(const edict_t *pEnt, int requestID, const char *cvarName
 	RETURN_META(MRES_IGNORED);
 }
 
-int TranscodeVoice(CRevoicePlayer *srcPlayer, const char *srcBuf, int srcBufLen, IVoiceCodec *srcCodec, IVoiceCodec *dstCodec, char *dstBuf, int dstBufSize)
+int TranscodeVoice(CRevoicePlayer *srcPlayer, const char *srcBuf, int srcBufLen, IVoiceCodec *srcCodec, IVoiceCodec *dstCodec, char *dstBuf, int dstBufSize, int *pDecodedSamples = nullptr)
 {
 	char decodedBuf[32768];
 
 	int numDecodedSamples = srcCodec->Decompress(srcBuf, srcBufLen, decodedBuf, sizeof(decodedBuf));
+	if (pDecodedSamples)
+		*pDecodedSamples = numDecodedSamples;
+
 	if (numDecodedSamples <= 0) {
 		return 0;
 	}
@@ -75,8 +78,12 @@ void SV_ParseVoiceData_emu(IGameClient *cl)
 	}
 
 	CRevoicePlayer *srcPlayer = GetPlayerByClientPtr(cl);
-	srcPlayer->SetLastVoiceTime(g_RehldsSv->GetTime());
-	srcPlayer->IncreaseVoiceRate(nDataLength);
+
+	double now = g_RehldsSv->GetTime();
+	cl->SetLastVoiceTime(now);
+
+	if (srcPlayer->IsVoiceFlood(now))
+		return;
 
 	char transcodedBuf[4096];
 
@@ -85,47 +92,49 @@ void SV_ParseVoiceData_emu(IGameClient *cl)
 
 	int silkDataLen = 0;
 	int speexDataLen = 0;
+	int decodedSamples = 0;
 
 	switch (srcPlayer->GetCodecType())
 	{
 	case vct_silk:
 	{
-		if (nDataLength > MAX_SILK_DATA_LEN || srcPlayer->GetVoiceRate() > MAX_SILK_VOICE_RATE)
+		if (nDataLength > MAX_SILK_DATA_LEN)
 			return;
 
 		silkData = chReceived; silkDataLen = nDataLength;
 		speexData = transcodedBuf;
-		speexDataLen = TranscodeVoice(srcPlayer, silkData, silkDataLen, srcPlayer->GetSilkCodec(), srcPlayer->GetSpeexCodec(), transcodedBuf, sizeof(transcodedBuf));
+		speexDataLen = TranscodeVoice(srcPlayer, silkData, silkDataLen, srcPlayer->GetSilkCodec(), srcPlayer->GetSpeexCodec(), transcodedBuf, sizeof(transcodedBuf), &decodedSamples);
 		break;
 	}
 	case vct_opus:
 	{
-		if (nDataLength > MAX_OPUS_DATA_LEN || srcPlayer->GetVoiceRate() > MAX_OPUS_VOICE_RATE)
+		if (nDataLength > MAX_OPUS_DATA_LEN)
 			return;
 
 		silkData = chReceived; silkDataLen = nDataLength;
 		speexData = transcodedBuf;
 
-		int numDecodedSamples = TranscodeVoice(srcPlayer, silkData, silkDataLen, srcPlayer->GetOpusCodec(), srcPlayer->GetSpeexCodec(), transcodedBuf, sizeof(transcodedBuf));
-		if (numDecodedSamples <= 0)
+		speexDataLen = TranscodeVoice(srcPlayer, silkData, silkDataLen, srcPlayer->GetOpusCodec(), srcPlayer->GetSpeexCodec(), transcodedBuf, sizeof(transcodedBuf), &decodedSamples);
+		if (speexDataLen <= 0)
 			return;
 
-		speexDataLen = numDecodedSamples;
 		break;
 	}
 	case vct_speex:
 	{
-		if (nDataLength > MAX_SPEEX_DATA_LEN || srcPlayer->GetVoiceRate() > MAX_SPEEX_VOICE_RATE)
+		if (nDataLength > MAX_SPEEX_DATA_LEN)
 			return;
 
 		speexData = chReceived; speexDataLen = nDataLength;
 		silkData = transcodedBuf;
-		silkDataLen = TranscodeVoice(srcPlayer, speexData, speexDataLen, srcPlayer->GetSpeexCodec(), srcPlayer->GetSilkCodec(), transcodedBuf, sizeof(transcodedBuf));
+		silkDataLen = TranscodeVoice(srcPlayer, speexData, speexDataLen, srcPlayer->GetSpeexCodec(), srcPlayer->GetSilkCodec(), transcodedBuf, sizeof(transcodedBuf), &decodedSamples);
 		break;
 	}
 	default:
 		return;
 	}
+
+	srcPlayer->AdvanceVoiceClock(now, decodedSamples);
 
 	int maxclients = g_RehldsSvs->GetMaxClients();
 	for (int i = 0; i < maxclients; i++)

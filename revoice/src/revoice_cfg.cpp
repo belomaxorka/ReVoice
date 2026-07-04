@@ -34,10 +34,12 @@ bool Revoice_Init_Config()
 
 cvar_t g_cv_rev_hltv_codec    = { "REV_HltvCodec", "opus", 0, 0.0f, nullptr };
 cvar_t g_cv_rev_default_codec = { "REV_DefaultCodec", "speex", 0, 0.0f, nullptr };
+cvar_t g_cv_rev_voicemaxdelta = { "REV_VoiceMaxDelta", REV_VOICEMAXDELTA_DEFAULT, 0, 0.0f, nullptr };
 cvar_t g_cv_rev_version       = { "revoice_version", APP_VERSION, FCVAR_SERVER, 0.0f, nullptr };
 
 cvar_t *g_pcv_rev_hltv_codec    = nullptr;
 cvar_t *g_pcv_rev_default_codec = nullptr;
+cvar_t *g_pcv_rev_voicemaxdelta = nullptr;
 cvar_t *g_pcv_sv_voiceenable    = nullptr;
 
 void Revoice_Init_Cvars()
@@ -47,10 +49,12 @@ void Revoice_Init_Cvars()
 	g_engfuncs.pfnCvar_RegisterVariable(&g_cv_rev_version);
 	g_engfuncs.pfnCvar_RegisterVariable(&g_cv_rev_hltv_codec);
 	g_engfuncs.pfnCvar_RegisterVariable(&g_cv_rev_default_codec);
+	g_engfuncs.pfnCvar_RegisterVariable(&g_cv_rev_voicemaxdelta);
 
 	g_pcv_sv_voiceenable = g_engfuncs.pfnCVarGetPointer("sv_voiceenable");
 	g_pcv_rev_hltv_codec = g_engfuncs.pfnCVarGetPointer(g_cv_rev_hltv_codec.name);
 	g_pcv_rev_default_codec = g_engfuncs.pfnCVarGetPointer(g_cv_rev_default_codec.name);
+	g_pcv_rev_voicemaxdelta = g_engfuncs.pfnCVarGetPointer(g_cv_rev_voicemaxdelta.name);
 
 	g_RehldsFuncs->AddCvarListener(g_cv_rev_hltv_codec.name, Revoice_Update_Hltv);
 	g_RehldsFuncs->AddCvarListener(g_cv_rev_default_codec.name, Revoice_Update_Players);
@@ -89,12 +93,13 @@ void Cmd_REV_Version()
 void Cmd_REV_Status()
 {
 	int nUsers =  0;
-	UTIL_ServerPrintf("\n%-5s %-32s %-6s %-4s %5s", "#", "name", "codec", "rate", "proto");
+	double now = g_RehldsSv->GetTime();
+	UTIL_ServerPrintf("\n%-5s %-32s %-6s %-6s %5s", "#", "name", "codec", "lead", "proto");
 
 	for (int i = 0; i < g_RehldsSvs->GetMaxClients(); i++) {
 		auto plr = &g_Players[i];
 		if (plr->IsConnected()) {
-			printf("#%-4i %-32s %-6s %-4i %-2i %-3s", i + 1, UTIL_VarArgs("\"%s\"", plr->GetClient()->GetName()), plr->GetCodecTypeToString(),	plr->GetVoiceRate(), plr->GetProtocol(), plr->IsHLTV() ? "   (HLTV)" : "");
+			printf("#%-4i %-32s %-6s %-4ims %-2i %-3s", i + 1, UTIL_VarArgs("\"%s\"", plr->GetClient()->GetName()), plr->GetCodecTypeToString(),	plr->GetVoiceFloodLeadMs(now), plr->GetProtocol(), plr->IsHLTV() ? "   (HLTV)" : "");
 			nUsers++;
 		}
 	}

@@ -27,6 +27,7 @@ option(ENABLE_UBSAN             "Enable UndefinedBehaviorSanitizer"             
 option(ENABLE_LINK_TRACE        "Enable linker trace flag (detailed output of the linking process)" OFF)
 option(ENABLE_SPEEX_VORBIS_PSY  "Enable Vorbis psychoacoustic model in the Speex codec"             OFF)
 option(OPTIMIZE_FOR_CURRENT_CPU "Generate code optimized for the current (native) processor"        OFF)
+option(REVOICE_BUILD_TESTS      "Build unit tests"                                                  OFF)
 
 #-------------------------------------------------------------------------------
 # Output Directories
@@ -166,3 +167,8 @@ add_subdirectory("external/opus")
 add_subdirectory("external/rehlsdk")
 add_subdirectory("external/metamod")
 add_subdirectory("revoice")
+
+if(REVOICE_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory("tests")
+endif()

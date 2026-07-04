@@ -1,6 +1,7 @@
 #pragma once
 
 #include "revoice_shared.h"
+#include "revoice_flood.h"
 #include "VoiceEncoder_Silk.h"
 #include "SteamP2PCodec.h"
 #include "VoiceEncoder_Speex.h"
@@ -14,7 +15,7 @@ private:
 	CSteamP2PCodec *m_OpusCodec;
 	VoiceCodec_Frame *m_SpeexCodec;
 	int m_Protocol;
-	int m_VoiceRate;
+	CVoiceFloodGuard m_VoiceFlood;
 	int m_RequestId;
 	bool m_Connected;
 	bool m_HLTV;
@@ -26,14 +27,13 @@ public:
 	void OnConnected();
 	void OnDisconnected();
 
-	void SetLastVoiceTime(double time);
-	void UpdateVoiceRate(double delta);
-	void IncreaseVoiceRate(int dataLength);
+	bool IsVoiceFlood(double now);
+	void AdvanceVoiceClock(double now, int numSamples);
+	int GetVoiceFloodLeadMs(double now) const;
 	CodecType GetCodecTypeByString(const char *codec);
 	const char *GetCodecTypeToString();
 
 	int GetProtocol()  const { return m_Protocol;  }
-	int GetVoiceRate() const { return m_VoiceRate; }
 	int GetRequestId() const { return m_RequestId; }
 	bool IsConnected() const { return m_Connected; }
 	bool IsHLTV()      const { return m_HLTV;      }

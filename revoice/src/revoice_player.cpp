@@ -39,7 +39,7 @@ void CRevoicePlayer::OnConnected()
 {
 	// already connected, suppose now there is a change of level?
 	if (m_Connected) {
-		m_VoiceRate = 0;
+		m_VoiceFlood.Reset();
 		return;
 	}
 
@@ -55,7 +55,7 @@ void CRevoicePlayer::OnConnected()
 
 	// default codec
 	m_CodecType = GetCodecTypeByString(g_pcv_rev_default_codec->string);
-	m_VoiceRate = 0;
+	m_VoiceFlood.Reset();
 	m_Connected = true;
 	m_RequestId = MAKE_REQUESTID(PLID);
 	m_Protocol = protocol;
@@ -75,7 +75,7 @@ void CRevoicePlayer::OnDisconnected()
 	m_Connected = false;
 	m_Protocol = 0;
 	m_CodecType = vct_none;
-	m_VoiceRate = 0;
+	m_VoiceFlood.Reset();
 	m_RequestId = 0;
 }
 
@@ -139,44 +139,25 @@ CRevoicePlayer *GetPlayerByEdict(const edict_t *ed)
 	return &g_Players[ clientId ];
 }
 
-void CRevoicePlayer::SetLastVoiceTime(double time)
+bool CRevoicePlayer::IsVoiceFlood(double now)
 {
-	UpdateVoiceRate(time - m_Client->GetLastVoiceTime());
-	m_Client->SetLastVoiceTime(time);
+	double maxDeltaMs = g_pcv_rev_voicemaxdelta ? g_pcv_rev_voicemaxdelta->value : 0.0;
+	return m_VoiceFlood.IsFlood(now, maxDeltaMs);
 }
 
-void CRevoicePlayer::UpdateVoiceRate(double delta)
+void CRevoicePlayer::AdvanceVoiceClock(double now, int numSamples)
 {
-	if (m_VoiceRate)
-	{
-		switch (m_CodecType)
-		{
-		case vct_silk:
-			m_VoiceRate -= int(delta * MAX_SILK_VOICE_RATE) + MAX_SILK_DATA_LEN;
-			break;
-		case vct_opus:
-			m_VoiceRate -= int(delta * MAX_OPUS_VOICE_RATE) + MAX_OPUS_DATA_LEN;
-			break;
-		case vct_speex:
-			m_VoiceRate -= int(delta * MAX_SPEEX_VOICE_RATE) + MAX_SPEEX_DATA_LEN;
-			break;
-		default:
-			break;
-		}
+	m_VoiceFlood.Advance(now, numSamples);
+}
 
-		if (m_VoiceRate < 0)
-			m_VoiceRate = 0;
-	}
+int CRevoicePlayer::GetVoiceFloodLeadMs(double now) const
+{
+	return m_VoiceFlood.LeadMs(now);
 }
 
 const char *CRevoicePlayer::GetCodecTypeToString()
 {
 	return m_szCodecType[ m_CodecType ];
-}
-
-void CRevoicePlayer::IncreaseVoiceRate(int dataLength)
-{
-	m_VoiceRate += dataLength;
 }
 
 CodecType CRevoicePlayer::GetCodecTypeByString(const char *codec)
