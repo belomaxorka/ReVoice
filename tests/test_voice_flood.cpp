@@ -108,6 +108,39 @@ static void test_recovery_after_silence()
 	CHECK(g.LeadMs(now) == 0);
 }
 
+// Real hpp6 "OPUS method": each ~253-byte packet decodes to ~2160 samples
+// (270 ms of audio) instead of one 20 ms frame. A single packet already pushes
+// the clock past the 200 ms budget, so the attacker firing as fast as it can is
+// throttled to roughly real time -- a handful of packets per second -- matching
+// what was captured live.
+static void test_oversized_sample_packet_throttled()
+{
+	const int EXPLOIT_SAMPLES = 2160;   // 270 ms crammed into one packet
+
+	CVoiceFloodGuard g;
+	double now = 0.0;
+
+	CHECK(!g.IsFlood(now, MAX_DELTA_MS));
+	g.Advance(now, EXPLOIT_SAMPLES);
+	CHECK(between(g.LeadMs(now), 268, 272));
+	CHECK(g.IsFlood(now, MAX_DELTA_MS));
+
+	for (int i = 0; i < 100; i++)
+		CHECK(g.IsFlood(now, MAX_DELTA_MS));
+
+	CVoiceFloodGuard g2;
+	double t = 0.0;
+	int accepted = 0;
+	for (int i = 0; i < 1000; i++) {          // attacker fires ~1 packet/ms for 1 s
+		if (!g2.IsFlood(t, MAX_DELTA_MS)) {
+			g2.Advance(t, EXPLOIT_SAMPLES);
+			accepted++;
+		}
+		t += 0.001;
+	}
+	CHECK(between(accepted, 3, 6));
+}
+
 // maxDelta of 0 disables flood protection entirely.
 static void test_disabled_when_zero()
 {
@@ -128,6 +161,7 @@ int main()
 	test_burst_flood_trips();
 	test_jitter_within_budget_ok();
 	test_empty_packets_floored();
+	test_oversized_sample_packet_throttled();
 	test_recovery_after_silence();
 	test_disabled_when_zero();
 
